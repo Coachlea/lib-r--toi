@@ -1,12 +1,12 @@
-const http = require(“http”);
+const http = require("http");
 
 const server = http.createServer((req, res) => {
-res.writeHead(200, { “Content-Type”: “text/plain” });
-res.end(“Liber-toi backend actif”);
+  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.end("Liber-toi backend actif");
 });
 
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, () => {
-console.log(“Serveur lancé”);
+  console.log("Serveur lancé");
 });
