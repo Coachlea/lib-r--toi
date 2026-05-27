@@ -1,7 +1,9 @@
-FROM node:18
+FROM node:18-alpine
 
 WORKDIR /app
 
 COPY . .
 
-CMD [“node”,“server.js”]
+RUN node -v
+
+CMD node server.js
