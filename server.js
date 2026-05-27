@@ -39,17 +39,21 @@ const server = http.createServer((req, res) => {
           let data = "";
           apiRes.on("data", chunk => data += chunk);
           apiRes.on("end", () => {
+            console.log("Status Anthropic:", apiRes.statusCode);
+            console.log("Reponse Anthropic:", data.substring(0, 200));
             res.writeHead(200, { "Content-Type": "application/json" });
             res.end(data);
           });
         });
         apiReq.on("error", e => {
+          console.log("Erreur requete:", e.message);
           res.writeHead(500);
           res.end(JSON.stringify({ error: e.message }));
         });
         apiReq.write(payload);
         apiReq.end();
       } catch(e) {
+        console.log("Erreur parsing:", e.message);
         res.writeHead(400);
         res.end(JSON.stringify({ error: e.message }));
       }
