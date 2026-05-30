@@ -3,65 +3,92 @@ const https = require("https");
 
 const PORT = process.env.PORT || 3000;
 
+// Stockage en mémoire des clientes (temporaire mais partagé)
+let clientesDB = [];
+
 const server = http.createServer((req, res) => {
- res.setHeader("Access-Control-Allow-Origin", "*");
- res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
- res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
- if (req.method === "OPTIONS") {
-   res.writeHead(204);
-   res.end();
-   return;
- }
+  if (req.method === "OPTIONS") {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
 
- if (req.method === "POST" && req.url === "/api/generate") {
-   let body = "";
-   req.on("data", chunk => body += chunk);
-   req.on("end", () => {
-     try {
-       const { prompt, max_tokens } = JSON.parse(body);
-       const payload = JSON.stringify({
-         model: "claude-sonnet-4-5",
-         max_tokens: max_tokens || 800,
-         messages: [{ role: "user", content: prompt }]
-       });
-       const options = {
-         hostname: "api.anthropic.com",
-         path: "/v1/messages",
-         method: "POST",
-         headers: {
-           "Content-Type": "application/json",
-           "x-api-key": process.env.ANTHROPIC_API_KEY,
-           "anthropic-version": "2023-06-01"
-         }
-       };
-       const apiReq = https.request(options, apiRes => {
-         let data = "";
-         apiRes.on("data", chunk => data += chunk);
-         apiRes.on("end", () => {
-           console.log("Status Anthropic:", apiRes.statusCode);
-           console.log("Reponse Anthropic:", data.substring(0, 200));
-           res.writeHead(200, { "Content-Type": "application/json" });
-           res.end(data);
-         });
-       });
-       apiReq.on("error", e => {
-         console.log("Erreur requete:", e.message);
-         res.writeHead(500);
-         res.end(JSON.stringify({ error: e.message }));
-       });
-       apiReq.write(payload);
-       apiReq.end();
-     } catch(e) {
-       console.log("Erreur parsing:", e.message);
-       res.writeHead(400);
-       res.end(JSON.stringify({ error: e.message }));
-     }
-   });
- } else {
-   res.writeHead(200, { "Content-Type": "text/plain" });
-   res.end("Liber-toi backend actif");
- }
+  // GET clientes
+  if (req.method === "GET" && req.url === "/api/clients") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(clientesDB));
+    return;
+  }
+
+  // POST sauvegarder clientes
+  if (req.method === "POST" && req.url === "/api/clients") {
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", () => {
+      try {
+        clientesDB = JSON.parse(body);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+      } catch(e) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/generate") {
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", () => {
+      try {
+        const { prompt, max_tokens } = JSON.parse(body);
+        const payload = JSON.stringify({
+          model: "claude-sonnet-4-5",
+          max_tokens: max_tokens || 800,
+          messages: [{ role: "user", content: prompt }]
+        });
+        const options = {
+          hostname: "api.anthropic.com",
+          path: "/v1/messages",
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": process.env.ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01"
+          }
+        };
+        const apiReq = https.request(options, apiRes => {
+          let data = "";
+          apiRes.on("data", chunk => data += chunk);
+          apiRes.on("end", () => {
+            console.log("Status Anthropic:", apiRes.statusCode);
+            console.log("Reponse Anthropic:", data.substring(0, 200));
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(data);
+          });
+        });
+        apiReq.on("error", e => {
+          console.log("Erreur requete:", e.message);
+          res.writeHead(500);
+          res.end(JSON.stringify({ error: e.message }));
+        });
+        apiReq.write(payload);
+        apiReq.end();
+      } catch(e) {
+        console.log("Erreur parsing:", e.message);
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+  } else {
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    res.end("Liber-toi backend actif");
+  }
 });
 
 server.listen(PORT, () => console.log("Serveur lance sur port " + PORT));
