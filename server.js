@@ -3,31 +3,37 @@ const https = require("https");
 
 const PORT = process.env.PORT || 3000;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
+const SUPABASE_HOST = "zalqoyfgiyzbjodsbszy.supabase.co";
 
 function supabaseRequest(method, path, body) {
   return new Promise((resolve, reject) => {
     const payload = body ? JSON.stringify(body) : null;
     const options = {
-      hostname: "zalqoyfgiyzbjodsbszy.supabase.co",
+      hostname: SUPABASE_HOST,
       path: "/rest/v1/" + path,
       method: method,
       headers: {
         "Content-Type": "application/json",
         "apikey": SUPABASE_KEY,
         "Authorization": "Bearer " + SUPABASE_KEY,
-        "Prefer": "return=representation"
+        "Prefer": "return=minimal"
       }
     };
+    if (payload) options.headers["Content-Length"] = Buffer.byteLength(payload);
     const req = https.request(options, res => {
       let data = "";
       res.on("data", chunk => data += chunk);
-      res.on("end", () => resolve(data));
+      res.on("end", () => resolve(data || "{}"));
     });
     req.on("error", reject);
     if (payload) req.write(payload);
     req.end();
   });
 }
+
+setInterval(() => {
+  http.get("http://localhost:" + PORT + "/").on("error", () => {});
+}, 14 * 60 * 1000);
 
 const server = http.createServer((req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -41,13 +47,18 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === "GET" && req.url === "/api/load") {
-    supabaseRequest("GET", "liberetoi_data?id=eq.1&select=*")
+    supabaseRequest("GET", "liberetoi_data?id=eq.1&select=payload")
       .then(data => {
-        const rows = JSON.parse(data);
-        if (rows && rows.length > 0 && rows[0].payload) {
-          res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify(rows[0].payload));
-        } else {
+        try {
+          const rows = JSON.parse(data);
+          if (rows && rows.length > 0 && rows[0].payload) {
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify(rows[0].payload));
+          } else {
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ clients: [], reponses: {}, rapports: {} }));
+          }
+        } catch(e) {
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ clients: [], reponses: {}, rapports: {} }));
         }
@@ -63,8 +74,8 @@ const server = http.createServer((req, res) => {
     req.on("data", chunk => body += chunk);
     req.on("end", async () => {
       try {
-        const payload = JSON.parse(body);
-        await supabaseRequest("PATCH", "liberetoi_data?id=eq.1", { payload: payload });
+        const data = JSON.parse(body);
+        await supabaseRequest("PATCH", "liberetoi_data?id=eq.1", { payload: data });
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: true }));
       } catch(e) {
