@@ -2,7 +2,6 @@ const http = require("http");
 const https = require("https");
 
 const PORT = process.env.PORT || 3000;
-const SUPABASE_URL = "https://zalqoyfgiyzbjodsbszy.supabase.co";
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 
 function supabaseRequest(method, path, body) {
@@ -41,29 +40,31 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (req.method === "GET" && req.url === "/api/clients") {
-    supabaseRequest("GET", "clients?select=*").then(data => {
-      const rows = JSON.parse(data);
-      const clients = rows.map(r => r.data);
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(clients));
-    }).catch(e => {
-      res.writeHead(500);
-      res.end(JSON.stringify({ error: e.message }));
-    });
+  if (req.method === "GET" && req.url === "/api/load") {
+    supabaseRequest("GET", "liberetoi_data?id=eq.1&select=*")
+      .then(data => {
+        const rows = JSON.parse(data);
+        if (rows && rows.length > 0 && rows[0].payload) {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(rows[0].payload));
+        } else {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ clients: [], reponses: {}, rapports: {} }));
+        }
+      }).catch(e => {
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: e.message }));
+      });
     return;
   }
 
-  if (req.method === "POST" && req.url === "/api/clients") {
+  if (req.method === "POST" && req.url === "/api/save") {
     let body = "";
     req.on("data", chunk => body += chunk);
     req.on("end", async () => {
       try {
-        const clients = JSON.parse(body);
-        for (const c of clients) {
-          await supabaseRequest("POST", "clients?on_conflict=id", [{ id: c.id, data: c }])
-            .catch(() => supabaseRequest("PATCH", "clients?id=eq." + c.id, { data: c }));
-        }
+        const payload = JSON.parse(body);
+        await supabaseRequest("PATCH", "liberetoi_data?id=eq.1", { payload: payload });
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: true }));
       } catch(e) {
@@ -81,7 +82,7 @@ const server = http.createServer((req, res) => {
       try {
         const { prompt, max_tokens } = JSON.parse(body);
         const payload = JSON.stringify({
-          model: "claude-sonnet-4-5",
+          model: "claude-sonnet-4-6",
           max_tokens: max_tokens || 800,
           messages: [{ role: "user", content: prompt }]
         });
@@ -114,10 +115,11 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({ error: e.message }));
       }
     });
-  } else {
-    res.writeHead(200, { "Content-Type": "text/plain" });
-    res.end("Liber-toi backend actif");
+    return;
   }
+
+  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.end("Liber-toi backend actif");
 });
 
 server.listen(PORT, () => console.log("Serveur lance sur port " + PORT));
