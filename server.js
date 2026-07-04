@@ -4,103 +4,164 @@ const https = require("https");
 const PORT = process.env.PORT || 3000;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const SUPABASE_HOST = "zalqoyfgiyzbjodsbszy.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_DUbnhLeTcevhBWm08yYpEA_WSawvojm";
+const SITE_ORIGIN = "https://programme-liberetoi.fr";
 
 function supabaseRequest(method, path, body, extraHeaders) {
  return new Promise((resolve, reject) => {
-   const payload = body ? JSON.stringify(body) : null;
-   const headers = {
-     "Content-Type": "application/json",
-     "apikey": SUPABASE_KEY,
-     "Authorization": "Bearer " + SUPABASE_KEY,
-     "Prefer": "return=minimal"
-   };
-   if (extraHeaders) Object.assign(headers, extraHeaders);
-   if (payload) headers["Content-Length"] = Buffer.byteLength(payload);
-   const options = { hostname: SUPABASE_HOST, path: "/rest/v1/" + path, method: method, headers: headers };
-   const req = https.request(options, res => {
-     let data = "";
-     res.on("data", chunk => data += chunk);
-     res.on("end", () => {
-       console.log("Supabase status:", res.statusCode, "data:", data.substring(0, 100));
-       resolve({ status: res.statusCode, data: data });
-     });
-   });
-   req.on("error", reject);
-   if (payload) req.write(payload);
-   req.end();
+   const payload = body ? JSON.stringify(body) : null;
+   const headers = {
+     "Content-Type": "application/json",
+     "apikey": SUPABASE_KEY,
+     "Authorization": "Bearer " + SUPABASE_KEY,
+     "Prefer": "return=minimal"
+   };
+   if (extraHeaders) Object.assign(headers, extraHeaders);
+   if (payload) headers["Content-Length"] = Buffer.byteLength(payload);
+   const options = { hostname: SUPABASE_HOST, path: "/rest/v1/" + path, method: method, headers: headers };
+   const req = https.request(options, res => {
+     let data = "";
+     res.on("data", chunk => data += chunk);
+     res.on("end", () => {
+       console.log("Supabase status:", res.statusCode, "data:", data.substring(0, 100));
+       resolve({ status: res.statusCode, data: data });
+     });
+   });
+   req.on("error", reject);
+   if (payload) req.write(payload);
+   req.end();
  });
+}
+
+// Vérifie qu'un token Supabase correspond bien à un utilisateur connecté (cliente ou coach)
+function verifierUtilisateurSupabase(token) {
+  return new Promise((resolve) => {
+    if (!token) return resolve(null);
+    const options = {
+      hostname: SUPABASE_HOST,
+      path: "/auth/v1/user",
+      method: "GET",
+      headers: {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": "Bearer " + token
+      }
+    };
+    const req = https.request(options, res => {
+      let data = "";
+      res.on("data", chunk => data += chunk);
+      res.on("end", () => {
+        try {
+          const parsed = JSON.parse(data);
+          resolve(res.statusCode === 200 && parsed.id ? parsed : null);
+        } catch (e) { resolve(null); }
+      });
+    });
+    req.on("error", () => resolve(null));
+    req.end();
+  });
+}
+
+// Limite simple de requêtes IA par utilisateur (protège la facture même en cas de bug ou d'abus)
+const compteurRequetes = new Map();
+const LIMITE_REQUETES = 40;
+const FENETRE_MS = 10 * 60 * 1000; // 10 minutes
+
+function depasseLimite(userId) {
+  const maintenant = Date.now();
+  const entree = compteurRequetes.get(userId);
+  if (!entree || maintenant > entree.reset) {
+    compteurRequetes.set(userId, { count: 1, reset: maintenant + FENETRE_MS });
+    return false;
+  }
+  entree.count++;
+  return entree.count > LIMITE_REQUETES;
 }
 
 setInterval(() => { http.get("http://localhost:" + PORT + "/").on("error", () => {}); }, 14 * 60 * 1000);
 
 const server = http.createServer((req, res) => {
- res.setHeader("Access-Control-Allow-Origin", "*");
+ res.setHeader("Access-Control-Allow-Origin", SITE_ORIGIN);
  res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
- res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+ res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
  if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
 
  if (req.method === "GET" && req.url === "/api/load") {
-   supabaseRequest("GET", "liberetoi_data?id=eq.1&select=payload")
-     .then(result => {
-       try {
-         const rows = JSON.parse(result.data);
-         if (rows && rows.length > 0 && rows[0].payload) {
-           const p = rows[0].payload;
-           console.log("LOAD: clients=" + (p.clients||[]).length + " reponses_keys=" + Object.keys(p.reponses||{}).length);
-           res.writeHead(200, { "Content-Type": "application/json" });
-           res.end(JSON.stringify(p));
-         } else {
-           res.writeHead(200, { "Content-Type": "application/json" });
-           res.end(JSON.stringify({ clients: [], reponses: {}, rapports: {} }));
-         }
-       } catch(e) {
-         res.writeHead(200, { "Content-Type": "application/json" });
-         res.end(JSON.stringify({ clients: [], reponses: {}, rapports: {} }));
-       }
-     }).catch(e => { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); });
-   return;
+   supabaseRequest("GET", "liberetoi_data?id=eq.1&select=payload")
+     .then(result => {
+       try {
+         const rows = JSON.parse(result.data);
+         if (rows && rows.length > 0 && rows[0].payload) {
+           const p = rows[0].payload;
+           console.log("LOAD: clients=" + (p.clients||[]).length + " reponses_keys=" + Object.keys(p.reponses||{}).length);
+           res.writeHead(200, { "Content-Type": "application/json" });
+           res.end(JSON.stringify(p));
+         } else {
+           res.writeHead(200, { "Content-Type": "application/json" });
+           res.end(JSON.stringify({ clients: [], reponses: {}, rapports: {} }));
+         }
+       } catch(e) {
+         res.writeHead(200, { "Content-Type": "application/json" });
+         res.end(JSON.stringify({ clients: [], reponses: {}, rapports: {} }));
+       }
+     }).catch(e => { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); });
+   return;
  }
 
  if (req.method === "POST" && req.url === "/api/save") {
-   let body = "";
-   req.on("data", chunk => body += chunk);
-   req.on("end", async () => {
-     try {
-       const data = JSON.parse(body);
-       const repKeys = Object.keys(data.reponses || {});
-       console.log("SAVE: clients=" + (data.clients||[]).length + " reponses_ids=" + JSON.stringify(repKeys));
-       const result = await supabaseRequest("POST", "liberetoi_data", { id: 1, payload: data }, { "Prefer": "resolution=merge-duplicates,return=minimal" });
-       console.log("Supabase upsert status:", result.status);
-       res.writeHead(200, { "Content-Type": "application/json" });
-       res.end(JSON.stringify({ ok: true }));
-     } catch(e) {
-       console.log("ERREUR SAVE:", e.message);
-       res.writeHead(400);
-       res.end(JSON.stringify({ error: e.message }));
-     }
-   });
-   return;
+   let body = "";
+   req.on("data", chunk => body += chunk);
+   req.on("end", async () => {
+     try {
+       const data = JSON.parse(body);
+       const repKeys = Object.keys(data.reponses || {});
+       console.log("SAVE: clients=" + (data.clients||[]).length + " reponses_ids=" + JSON.stringify(repKeys));
+       const result = await supabaseRequest("POST", "liberetoi_data", { id: 1, payload: data }, { "Prefer": "resolution=merge-duplicates,return=minimal" });
+       console.log("Supabase upsert status:", result.status);
+       res.writeHead(200, { "Content-Type": "application/json" });
+       res.end(JSON.stringify({ ok: true }));
+     } catch(e) {
+       console.log("ERREUR SAVE:", e.message);
+       res.writeHead(400);
+       res.end(JSON.stringify({ error: e.message }));
+     }
+   });
+   return;
  }
 
  if (req.method === "POST" && req.url === "/api/generate") {
-   let body = "";
-   req.on("data", chunk => body += chunk);
-   req.on("end", () => {
-     try {
-       const { prompt, max_tokens } = JSON.parse(body);
-       const payload = JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: max_tokens || 800, messages: [{ role: "user", content: prompt }] });
-       const options = { hostname: "api.anthropic.com", path: "/v1/messages", method: "POST", headers: { "Content-Type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" } };
-       const apiReq = https.request(options, apiRes => {
-         let data = "";
-         apiRes.on("data", chunk => data += chunk);
-         apiRes.on("end", () => { res.writeHead(200, { "Content-Type": "application/json" }); res.end(data); });
-       });
-       apiReq.on("error", e => { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); });
-       apiReq.write(payload);
-       apiReq.end();
-     } catch(e) { res.writeHead(400); res.end(JSON.stringify({ error: e.message })); }
-   });
-   return;
+   let body = "";
+   req.on("data", chunk => body += chunk);
+   req.on("end", async () => {
+     try {
+       // Vérifie qu'une vraie session Supabase (cliente ou coach) est fournie
+       const authHeader = req.headers["authorization"] || "";
+       const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+       const utilisateur = await verifierUtilisateurSupabase(token);
+       if (!utilisateur) {
+         res.writeHead(401, { "Content-Type": "application/json" });
+         res.end(JSON.stringify({ error: "Non autorisé. Connecte-toi pour utiliser cette fonctionnalité." }));
+         return;
+       }
+       if (depasseLimite(utilisateur.id)) {
+         res.writeHead(429, { "Content-Type": "application/json" });
+         res.end(JSON.stringify({ error: "Trop de requêtes. Réessaie dans quelques minutes." }));
+         return;
+       }
+
+       const { prompt, max_tokens } = JSON.parse(body);
+       const payload = JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: max_tokens || 800, messages: [{ role: "user", content: prompt }] });
+       const options = { hostname: "api.anthropic.com", path: "/v1/messages", method: "POST", headers: { "Content-Type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" } };
+       const apiReq = https.request(options, apiRes => {
+         let data = "";
+         apiRes.on("data", chunk => data += chunk);
+         apiRes.on("end", () => { res.writeHead(200, { "Content-Type": "application/json" }); res.end(data); });
+       });
+       apiReq.on("error", e => { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); });
+       apiReq.write(payload);
+       apiReq.end();
+     } catch(e) { res.writeHead(400); res.end(JSON.stringify({ error: e.message })); }
+   });
+   return;
  }
 
  res.writeHead(200, { "Content-Type": "text/plain" });
