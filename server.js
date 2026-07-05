@@ -5,7 +5,24 @@ const PORT = process.env.PORT || 3000;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const SUPABASE_HOST = "zalqoyfgiyzbjodsbszy.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_DUbnhLeTcevhBWm08yYpEA_WSawvojm";
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const SITE_ORIGIN = "https://programme-liberetoi.fr";
+
+// Limite les tentatives de réinitialisation de mot de passe par IP (protège contre le brute-force sur le code)
+const compteurReset = new Map();
+const LIMITE_RESET = 8;
+const FENETRE_RESET_MS = 15 * 60 * 1000; // 15 minutes
+
+function depasseLimiteReset(ip) {
+  const maintenant = Date.now();
+  const entree = compteurReset.get(ip);
+  if (!entree || maintenant > entree.reset) {
+    compteurReset.set(ip, { count: 1, reset: maintenant + FENETRE_RESET_MS });
+    return false;
+  }
+  entree.count++;
+  return entree.count > LIMITE_RESET;
+}
 
 function supabaseRequest(method, path, body, extraHeaders) {
  return new Promise((resolve, reject) => {
@@ -160,6 +177,68 @@ const server = http.createServer((req, res) => {
        apiReq.write(payload);
        apiReq.end();
      } catch(e) { res.writeHead(400); res.end(JSON.stringify({ error: e.message })); }
+   });
+   return;
+ }
+
+ if (req.method === "POST" && req.url === "/api/reset-password") {
+   let body = "";
+   req.on("data", chunk => body += chunk);
+   req.on("end", async () => {
+     try {
+       const ip = req.socket.remoteAddress || "inconnu";
+       if (depasseLimiteReset(ip)) {
+         res.writeHead(429, { "Content-Type": "application/json" });
+         res.end(JSON.stringify({ error: "Trop de tentatives. Réessaie dans 15 minutes." }));
+         return;
+       }
+       const { email, code, newPassword } = JSON.parse(body);
+       if (!email || !code || !newPassword || newPassword.length < 6) {
+         res.writeHead(400, { "Content-Type": "application/json" });
+         res.end(JSON.stringify({ error: "Champs invalides." }));
+         return;
+       }
+       const check = await supabaseRequest("GET", "clients?email=eq." + encodeURIComponent(email.toLowerCase()) + "&code=eq." + encodeURIComponent(code.toUpperCase()) + "&select=auth_id");
+       const rows = JSON.parse(check.data);
+       if (!rows || rows.length === 0 || !rows[0].auth_id) {
+         res.writeHead(401, { "Content-Type": "application/json" });
+         res.end(JSON.stringify({ error: "Email ou code incorrect." }));
+         return;
+       }
+       const authId = rows[0].auth_id;
+       const payload = JSON.stringify({ password: newPassword });
+       const options = {
+         hostname: SUPABASE_HOST,
+         path: "/auth/v1/admin/users/" + authId,
+         method: "PUT",
+         headers: {
+           "Content-Type": "application/json",
+           "apikey": SUPABASE_SERVICE_KEY,
+           "Authorization": "Bearer " + SUPABASE_SERVICE_KEY,
+           "Content-Length": Buffer.byteLength(payload)
+         }
+       };
+       const adminReq = https.request(options, adminRes => {
+         let data = "";
+         adminRes.on("data", chunk => data += chunk);
+         adminRes.on("end", () => {
+           if (adminRes.statusCode >= 200 && adminRes.statusCode < 300) {
+             res.writeHead(200, { "Content-Type": "application/json" });
+             res.end(JSON.stringify({ ok: true }));
+           } else {
+             console.log("Erreur admin update password:", adminRes.statusCode, data.substring(0,200));
+             res.writeHead(500, { "Content-Type": "application/json" });
+             res.end(JSON.stringify({ error: "Erreur lors de la mise à jour du mot de passe." }));
+           }
+         });
+       });
+       adminReq.on("error", e => { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); });
+       adminReq.write(payload);
+       adminReq.end();
+     } catch(e) {
+       res.writeHead(400, { "Content-Type": "application/json" });
+       res.end(JSON.stringify({ error: e.message }));
+     }
    });
    return;
  }
