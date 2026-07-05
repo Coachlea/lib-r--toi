@@ -97,7 +97,7 @@ function depasseLimite(userId) {
 setInterval(() => { http.get("http://localhost:" + PORT + "/").on("error", () => {}); }, 14 * 60 * 1000);
 
 const crypto = require("crypto");
-const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
+const STRIPE_WEBHOOK_SECRET = (process.env.STRIPE_WEBHOOK_SECRET || "").trim();
 
 // Vérifie que la requête vient bien de Stripe (et pas d'un imposteur) en recalculant la signature
 function verifierSignatureStripe(payloadBrut, signatureHeader, secret) {
@@ -133,6 +133,8 @@ const server = http.createServer((req, res) => {
        const signature = req.headers["stripe-signature"];
        if (!verifierSignatureStripe(body, signature, STRIPE_WEBHOOK_SECRET)) {
          console.log("Webhook Stripe: signature invalide, requete rejetee");
+         console.log("  -> STRIPE_WEBHOOK_SECRET defini:", !!STRIPE_WEBHOOK_SECRET, "longueur:", STRIPE_WEBHOOK_SECRET.length);
+         console.log("  -> en-tete stripe-signature recu:", signature ? signature.substring(0, 30) + "..." : "AUCUN");
          res.writeHead(400);
          res.end("Signature invalide");
          return;
