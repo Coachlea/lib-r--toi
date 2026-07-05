@@ -96,11 +96,68 @@ function depasseLimite(userId) {
 
 setInterval(() => { http.get("http://localhost:" + PORT + "/").on("error", () => {}); }, 14 * 60 * 1000);
 
+const crypto = require("crypto");
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
+
+// Vérifie que la requête vient bien de Stripe (et pas d'un imposteur) en recalculant la signature
+function verifierSignatureStripe(payloadBrut, signatureHeader, secret) {
+  try {
+    const parts = signatureHeader.split(",").reduce((acc, part) => {
+      const [k, v] = part.split("=");
+      acc[k] = v;
+      return acc;
+    }, {});
+    const timestamp = parts["t"];
+    const signatureRecue = parts["v1"];
+    if (!timestamp || !signatureRecue) return false;
+    const signaturePayload = timestamp + "." + payloadBrut;
+    const signatureAttendue = crypto.createHmac("sha256", secret).update(signaturePayload, "utf8").digest("hex");
+    const bufRecue = Buffer.from(signatureRecue, "utf8");
+    const bufAttendue = Buffer.from(signatureAttendue, "utf8");
+    if (bufRecue.length !== bufAttendue.length) return false;
+    return crypto.timingSafeEqual(bufRecue, bufAttendue);
+  } catch (e) { return false; }
+}
+
 const server = http.createServer((req, res) => {
  res.setHeader("Access-Control-Allow-Origin", SITE_ORIGIN);
  res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
  if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
+
+ if (req.method === "POST" && req.url === "/api/stripe-webhook") {
+   let body = "";
+   req.on("data", chunk => body += chunk);
+   req.on("end", async () => {
+     try {
+       const signature = req.headers["stripe-signature"];
+       if (!verifierSignatureStripe(body, signature, STRIPE_WEBHOOK_SECRET)) {
+         console.log("Webhook Stripe: signature invalide, requete rejetee");
+         res.writeHead(400);
+         res.end("Signature invalide");
+         return;
+       }
+       const event = JSON.parse(body);
+       if (event.type === "checkout.session.completed") {
+         const session = event.data.object;
+         const code = session.client_reference_id;
+         if (code) {
+           const result = await supabaseRequest("PATCH", "clients?code=eq." + encodeURIComponent(code), { statut: "actif" });
+           console.log("Paiement confirme pour code " + code + ", statut:", result.status);
+         } else {
+           console.log("Webhook Stripe: checkout.session.completed sans client_reference_id");
+         }
+       }
+       res.writeHead(200, { "Content-Type": "application/json" });
+       res.end(JSON.stringify({ received: true }));
+     } catch (e) {
+       console.log("ERREUR webhook Stripe:", e.message);
+       res.writeHead(400);
+       res.end(JSON.stringify({ error: e.message }));
+     }
+   });
+   return;
+ }
 
  if (req.method === "GET" && req.url === "/api/load") {
    supabaseRequest("GET", "liberetoi_data?id=eq.1&select=payload")
