@@ -198,7 +198,7 @@ const server = http.createServer((req, res) => {
          res.end(JSON.stringify({ error: "Champs invalides." }));
          return;
        }
-       const check = await supabaseRequest("GET", "clients?email=eq." + encodeURIComponent(email.toLowerCase()) + "&code=eq." + encodeURIComponent(code.toUpperCase()) + "&select=auth_id");
+       const check = await supabaseRequest("GET", "clients?email=ilike." + encodeURIComponent(email.toLowerCase()) + "&code=ilike." + encodeURIComponent(code.toUpperCase()) + "&select=auth_id");
        const rows = JSON.parse(check.data);
        if (!rows || rows.length === 0 || !rows[0].auth_id) {
          res.writeHead(401, { "Content-Type": "application/json" });
