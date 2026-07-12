@@ -37,9 +37,10 @@ function supabaseRequest(method, path, body, extraHeaders) {
    if (payload) headers["Content-Length"] = Buffer.byteLength(payload);
    const options = { hostname: SUPABASE_HOST, path: "/rest/v1/" + path, method: method, headers: headers };
    const req = https.request(options, res => {
-     let data = "";
-     res.on("data", chunk => data += chunk);
+     let chunks = [];
+     res.on("data", chunk => chunks.push(chunk));
      res.on("end", () => {
+       const data = Buffer.concat(chunks).toString("utf8");
        console.log("Supabase status:", res.statusCode, "data:", data.substring(0, 100));
        resolve({ status: res.statusCode, data: data });
      });
@@ -64,9 +65,10 @@ function verifierUtilisateurSupabase(token) {
       }
     };
     const req = https.request(options, res => {
-      let data = "";
-      res.on("data", chunk => data += chunk);
+      let chunks = [];
+      res.on("data", chunk => chunks.push(chunk));
       res.on("end", () => {
+        const data = Buffer.concat(chunks).toString("utf8");
         try {
           const parsed = JSON.parse(data);
           resolve(res.statusCode === 200 && parsed.id ? parsed : null);
@@ -139,9 +141,10 @@ function appellerClaude(prompt, maxTokens) {
       }
     };
     const apiReq = https.request(options, apiRes => {
-      let data = "";
-      apiRes.on("data", chunk => data += chunk);
+      let chunks = [];
+      apiRes.on("data", chunk => chunks.push(chunk));
       apiRes.on("end", () => {
+        const data = Buffer.concat(chunks).toString("utf8");
         try {
           const parsed = JSON.parse(data);
           const texte = Array.isArray(parsed.content) ? parsed.content.map(b => b.text || "").join("") : "";
@@ -509,9 +512,10 @@ const server = http.createServer((req, res) => {
  if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
 
  if (req.method === "POST" && req.url === "/api/stripe-webhook") {
-   let body = "";
-   req.on("data", chunk => body += chunk);
+   let bodyChunks = [];
+   req.on("data", chunk => bodyChunks.push(chunk));
    req.on("end", async () => {
+     const body = Buffer.concat(bodyChunks).toString("utf8");
      try {
        const signature = req.headers["stripe-signature"];
        if (!verifierSignatureStripe(body, signature, STRIPE_WEBHOOK_SECRET)) {
@@ -567,9 +571,10 @@ const server = http.createServer((req, res) => {
  }
 
  if (req.method === "POST" && req.url === "/api/save") {
-   let body = "";
-   req.on("data", chunk => body += chunk);
+   let bodyChunks = [];
+   req.on("data", chunk => bodyChunks.push(chunk));
    req.on("end", async () => {
+     const body = Buffer.concat(bodyChunks).toString("utf8");
      try {
        const data = JSON.parse(body);
        const repKeys = Object.keys(data.reponses || {});
@@ -588,9 +593,10 @@ const server = http.createServer((req, res) => {
  }
 
  if (req.method === "POST" && req.url === "/api/generate") {
-   let body = "";
-   req.on("data", chunk => body += chunk);
+   let bodyChunks = [];
+   req.on("data", chunk => bodyChunks.push(chunk));
    req.on("end", async () => {
+     const body = Buffer.concat(bodyChunks).toString("utf8");
      try {
        // Vérifie qu'une vraie session Supabase (cliente ou coach) est fournie
        const authHeader = req.headers["authorization"] || "";
@@ -611,9 +617,13 @@ const server = http.createServer((req, res) => {
        const payload = JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: max_tokens || 800, messages: [{ role: "user", content: prompt }] });
        const options = { hostname: "api.anthropic.com", path: "/v1/messages", method: "POST", headers: { "Content-Type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" } };
        const apiReq = https.request(options, apiRes => {
-         let data = "";
-         apiRes.on("data", chunk => data += chunk);
-         apiRes.on("end", () => { res.writeHead(200, { "Content-Type": "application/json" }); res.end(data); });
+         let chunks = [];
+         apiRes.on("data", chunk => chunks.push(chunk));
+         apiRes.on("end", () => {
+           const data = Buffer.concat(chunks).toString("utf8");
+           res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+           res.end(data);
+         });
        });
        apiReq.on("error", e => { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); });
        apiReq.write(payload);
@@ -624,9 +634,10 @@ const server = http.createServer((req, res) => {
  }
 
  if (req.method === "POST" && req.url === "/api/extract") {
-   let body = "";
-   req.on("data", chunk => body += chunk);
+   let bodyChunks = [];
+   req.on("data", chunk => bodyChunks.push(chunk));
    req.on("end", async () => {
+     const body = Buffer.concat(bodyChunks).toString("utf8");
      try {
        const authHeader = req.headers["authorization"] || "";
        const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
@@ -689,9 +700,10 @@ const server = http.createServer((req, res) => {
  }
 
  if (req.method === "POST" && req.url === "/api/generate-question") {
-   let body = "";
-   req.on("data", chunk => body += chunk);
+   let bodyChunks = [];
+   req.on("data", chunk => bodyChunks.push(chunk));
    req.on("end", async () => {
+     const body = Buffer.concat(bodyChunks).toString("utf8");
      try {
        const authHeader = req.headers["authorization"] || "";
        const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
@@ -735,9 +747,10 @@ const server = http.createServer((req, res) => {
    // Route de traçabilité pure : journalise la raison de sélection de CHAQUE question
    // (structurante ou générée), même quand aucun appel IA n'est fait. Ne fait aucun appel
    // externe, ne touche à aucune donnée — juste un log serveur consultable dans Render.
-   let body = "";
-   req.on("data", chunk => body += chunk);
+   let bodyChunks = [];
+   req.on("data", chunk => bodyChunks.push(chunk));
    req.on("end", () => {
+     const body = Buffer.concat(bodyChunks).toString("utf8");
      try {
        const authHeader = req.headers["authorization"] || "";
        const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
@@ -757,9 +770,10 @@ const server = http.createServer((req, res) => {
  }
 
  if (req.method === "POST" && req.url === "/api/reset-password") {
-   let body = "";
-   req.on("data", chunk => body += chunk);
+   let bodyChunks = [];
+   req.on("data", chunk => bodyChunks.push(chunk));
    req.on("end", async () => {
+     const body = Buffer.concat(bodyChunks).toString("utf8");
      try {
        const ip = req.socket.remoteAddress || "inconnu";
        if (depasseLimiteReset(ip)) {
@@ -794,9 +808,10 @@ const server = http.createServer((req, res) => {
          }
        };
        const adminReq = https.request(options, adminRes => {
-         let data = "";
-         adminRes.on("data", chunk => data += chunk);
+         let chunks = [];
+         adminRes.on("data", chunk => chunks.push(chunk));
          adminRes.on("end", () => {
+           const data = Buffer.concat(chunks).toString("utf8");
            if (adminRes.statusCode >= 200 && adminRes.statusCode < 300) {
              res.writeHead(200, { "Content-Type": "application/json" });
              res.end(JSON.stringify({ ok: true }));
